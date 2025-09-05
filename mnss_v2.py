@@ -169,6 +169,9 @@ DEFAULT_CFG = {
             "excludes": []
         }
     },
+    # TODO(spec v2): Consider expanding roles to include token_maker, landfall_payoff,
+    # fetch_like_enabler, gy_enabler, interaction, etc., to support cluster-specific
+    # Engine Support (ES) formulas.
     "roles": {
         "counter": [r"\bcounter target\b"],
         "removal_hard": [r"\bexile target\b", r"\bdestroy target\b(?!.*return)"],
@@ -278,6 +281,9 @@ def mv_stats(entries: List[DeckEntry], db: Dict[str,Card]) -> Tuple[float,float]
     return mu, sd
 
 def cluster_score(entries: List[DeckEntry], db: Dict[str,Card], cluster_name: str, cfg: Dict[str,Any], lex: Optional[Dict[str,Any]]) -> int:
+    # TODO(spec v2): Return both payoff and enabler hits for density-based cluster
+    # selection instead of a single summed score. Implement includes/excludes and
+    # role-based counts, then compute densities in auto_primary_cluster with tie-breaks.
     score = 0
     for e in entries:
         c = db.get(normalize_name(e.name))
@@ -287,6 +293,8 @@ def cluster_score(entries: List[DeckEntry], db: Dict[str,Card], cluster_name: st
     return score
 
 def auto_primary_cluster(entries: List[DeckEntry], db: Dict[str,Card], cfg: Dict[str,Any], lex: Optional[Dict[str,Any]]) -> str:
+    # TODO(spec v2): Choose by (payoff+enabler) density; tie-break by (payoff-enabler)
+    # density; then by priority Spellchain > Landfall > Tokens > Control > Graveyard.
     best='Default'; best_val=-1
     for cname in cfg.get('clusters',{}).keys():
         val = cluster_score(entries, db, cname, cfg, lex)
@@ -306,6 +314,12 @@ def metric_ES(entries, db, cfg, lex=None) -> float:
     main = mainboard_entries(entries)
     nonlands,_ = counts_nonlands(main, db)
     if nonlands == 0: return 0.0
+    # TODO(spec v2): Compute ES per primary cluster using densities/ratios:
+    # - Spellchain: 0.5*cheap_interaction_ratio + 0.5*velocity_density
+    # - Control:   0.5*cheap_interaction_ratio + 0.5*min(1, interaction_density)
+    # - Others (Landfall/Tokens/Graveyard): add branches per doc 5.2
+    # Requires helpers: cheap/total interaction hits, velocity density (see VEL),
+    # and primary cluster detection using tie-breaks.
     total = 0.0
     for e in main:
         c = db.get(normalize_name(e.name))
@@ -317,7 +331,9 @@ def metric_ES(entries, db, cfg, lex=None) -> float:
 
 def metric_CS(entries, db, cfg, lex=None) -> float:
     _, sd = mv_stats(mainboard_entries(entries), db)
-    return -sd  # spread lower = better
+    # TODO(spec v2): CS_raw should be std spread (positive). Remove negation here
+    # and keep single sign inversion at normalization (map_z_to_unit(-z)).
+    return -sd  # current behavior (needs spec alignment)
 
 def metric_MR(entries, db, cfg, lex=None) -> float:
     main = mainboard_entries(entries)
@@ -361,11 +377,18 @@ def metric_MR(entries, db, cfg, lex=None) -> float:
         for col in cols:
             sources[col] += w * e.count
 
+    # TODO(spec v2): Use double-pip spells counted by copies (not total pips):
+    # if has early 1-drop OR >=8 double-pip spells -> 14
+    # elif any double-pip spells -> 12
+    # else -> 8
     def target_for(col: str) -> int:
         if (col in early) or (col in any_double and pips[col] >= 8): return 14
         elif (col in any_double) or (pips[col] >= 4): return 12
         else: return 8
 
+    # TODO(spec v2): Aggregate with pip-share weighting and 1.2 cap per color:
+    # per_c = min(1.2, sources[col] / max(1, target)); pip_share = pips[col]/sum_pips
+    # MR_raw = sum(per_c * pip_share). Current implementation averages ratios equally.
     ratios = []
     for col in colors_in_deck:
         s = sources[col]; t = target_for(col)
@@ -383,6 +406,11 @@ def metric_RD(entries, db, cfg, lex=None) -> float:
         for r in ['counter','sweeper','removal_hard','removal_soft','ca','threat','smoothing']:
             if card_has_role_name(c, r, cfg['roles'], lex):
                 counts[r] += e.count
+    # TODO(spec v2): Redefine RD:
+    # - Plan-critical roles = {removal (hard+soft+sweeper), countermagic, payoff, velocity}
+    # - depth_count = #roles with depth >= 4 (by copies)
+    # - breadth = min(1, distinct_roles / 6)
+    # - RD_raw = 0.7*(depth_count/4) + 0.3*breadth
     critical = ['counter','sweeper','removal_hard']
     depth = sum(min(counts[r]/nonlands, 0.20) for r in critical)
     breadth = len([r for r,v in counts.items() if v>0]) / 7.0
@@ -396,6 +424,9 @@ def metric_VEL(entries, db, cfg, lex=None) -> float:
     for e in main:
         c = db.get(normalize_name(e.name))
         if not c or is_land(c): continue
+        # TODO(spec v2): Count VEL hits as:
+        # - MV<=2 with draw (role 'ca'), OR
+        # - any MV with selection mechanics (role 'smoothing').
         if c.mana_value <= 2 and card_has_role_name(c, 'smoothing', cfg['roles'], lex):
             total += e.count
     return total / nonlands
@@ -404,6 +435,10 @@ def metric_IF(entries, db, cfg, lex=None) -> float:
     main = mainboard_entries(entries)
     nonlands,_ = counts_nonlands(main, db)
     if nonlands == 0: return 0.0
+    # TODO(spec v2): Replace with cheap/total interaction ratio per doc 5.7:
+    # cheap = hits of counter|removal_hard|removal_soft with MV<=2
+    # total = hits of counter|removal_hard|removal_soft|sweeper
+    # IF_raw = cheap / max(1, total)
     counts = {k:0 for k in ['counter','hard','soft','sweeper','exile']}
     for e in main:
         c = db.get(normalize_name(e.name))
@@ -441,6 +476,8 @@ def score_from_raw(raw: Dict[str,float], baseline: Dict[str,Dict[str,float]], si
     for k, v in raw.items():
         bs = baseline.get(k, {'mu':0.0,'sigma':1.0})
         z = z_from(v, float(bs.get('mu',0.0)), float(bs.get('sigma',1.0)), sigma_floor)
+        # TODO(spec v2): CS should invert sign exactly once at normalization; ensure
+        # metric_CS returns std spread (positive) to avoid double inversion.
         unit[k] = map_z_to_unit(-z) if k=='CS' else map_z_to_unit(z)
     mnss = 100.0 * sum(WEIGHTS[k]*unit[k] for k in WEIGHTS)
     return unit, mnss
