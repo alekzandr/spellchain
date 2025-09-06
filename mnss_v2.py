@@ -435,28 +435,22 @@ def metric_IF(entries, db, cfg, lex=None) -> float:
     main = mainboard_entries(entries)
     nonlands,_ = counts_nonlands(main, db)
     if nonlands == 0: return 0.0
-    # TODO(spec v2): Replace with cheap/total interaction ratio per doc 5.7:
-    # cheap = hits of counter|removal_hard|removal_soft with MV<=2
-    # total = hits of counter|removal_hard|removal_soft|sweeper
-    # IF_raw = cheap / max(1, total)
-    counts = {k:0 for k in ['counter','hard','soft','sweeper','exile']}
+    # Cheap interaction ratio per spec v2 (doc 5.7)
+    cheap = 0
+    total = 0
     for e in main:
         c = db.get(normalize_name(e.name))
-        if not c or is_land(c): continue
-        if card_has_role_name(c, 'counter', cfg['roles'], lex): counts['counter'] += e.count
-        if card_has_role_name(c, 'removal_hard', cfg['roles'], lex): 
-            counts['hard'] += e.count
-            counts['exile'] += e.count  # bonus signal piggy-backs on hard removal
-        if card_has_role_name(c, 'removal_soft', cfg['roles'], lex): counts['soft'] += e.count
-        if card_has_role_name(c, 'sweeper', cfg['roles'], lex): counts['sweeper'] += e.count
-
-    scale = 60.0 / max(1.0, nonlands)
-    v = {k: counts[k]*scale for k in counts}
-    total = sum(v[b] for b in ['counter','hard','soft','sweeper']) or 1.0
-    probs = [v[b]/total for b in ['counter','hard','soft','sweeper']]
-    diversity = 1.0 - sum(p*p for p in probs)
-    exile_bonus = min(1.0, v['exile']/6.0) * 0.15
-    return 0.85*diversity + exile_bonus
+        if not c or is_land(c):
+            continue
+        is_counter = card_has_role_name(c, 'counter', cfg['roles'], lex)
+        is_hard = card_has_role_name(c, 'removal_hard', cfg['roles'], lex)
+        is_soft = card_has_role_name(c, 'removal_soft', cfg['roles'], lex)
+        is_sweeper = card_has_role_name(c, 'sweeper', cfg['roles'], lex)
+        if is_counter or is_hard or is_soft or is_sweeper:
+            total += e.count
+            if c.mana_value <= 2 and (is_counter or is_hard or is_soft):
+                cheap += e.count
+    return cheap / max(1, total)
 
 RAW_METRICS = {
     'PC': metric_PC, 'ES': metric_ES, 'CS': metric_CS, 'MR': metric_MR, 'RD': metric_RD, 'VEL': metric_VEL, 'IF': metric_IF
