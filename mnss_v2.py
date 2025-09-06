@@ -424,10 +424,10 @@ def metric_VEL(entries, db, cfg, lex=None) -> float:
     for e in main:
         c = db.get(normalize_name(e.name))
         if not c or is_land(c): continue
-        # TODO(spec v2): Count VEL hits as:
-        # - MV<=2 with draw (role 'ca'), OR
-        # - any MV with selection mechanics (role 'smoothing').
-        if c.mana_value <= 2 and card_has_role_name(c, 'smoothing', cfg['roles'], lex):
+        # Count VEL hits as either a cheap draw spell or any selection spell
+        is_draw = card_has_role_name(c, 'ca', cfg['roles'], lex)
+        is_smoothing = card_has_role_name(c, 'smoothing', cfg['roles'], lex)
+        if (c.mana_value <= 2 and is_draw) or is_smoothing:
             total += e.count
     return total / nonlands
 
