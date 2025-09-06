@@ -331,9 +331,9 @@ def metric_ES(entries, db, cfg, lex=None) -> float:
 
 def metric_CS(entries, db, cfg, lex=None) -> float:
     _, sd = mv_stats(mainboard_entries(entries), db)
-    # TODO(spec v2): CS_raw should be std spread (positive). Remove negation here
-    # and keep single sign inversion at normalization (map_z_to_unit(-z)).
-    return -sd  # current behavior (needs spec alignment)
+    # Curve smoothness uses the spread of non-land mana values; lower spread is better.
+    # Return the standard deviation so sign inversion occurs only during normalization.
+    return sd
 
 def metric_MR(entries, db, cfg, lex=None) -> float:
     main = mainboard_entries(entries)
@@ -476,8 +476,7 @@ def score_from_raw(raw: Dict[str,float], baseline: Dict[str,Dict[str,float]], si
     for k, v in raw.items():
         bs = baseline.get(k, {'mu':0.0,'sigma':1.0})
         z = z_from(v, float(bs.get('mu',0.0)), float(bs.get('sigma',1.0)), sigma_floor)
-        # TODO(spec v2): CS should invert sign exactly once at normalization; ensure
-        # metric_CS returns std spread (positive) to avoid double inversion.
+        # Curve smoothness rewards lower spread, so invert its z-score here.
         unit[k] = map_z_to_unit(-z) if k=='CS' else map_z_to_unit(z)
     mnss = 100.0 * sum(WEIGHTS[k]*unit[k] for k in WEIGHTS)
     return unit, mnss
