@@ -172,7 +172,6 @@ Full details and tie‑break rules are in `docs/MNSS_Design_Doc_v2.md`.
 TBD
 
 ## TODO (Spec v2 Alignment)
-- CS: Remove negation in `metric_CS` and keep single sign inversion at normalization.
 - ES: Implement cluster‑aware formulas (Spellchain/Control now; Landfall/Tokens/Graveyard next) using densities and ratios.
 - Primary Cluster: Select by payoff+enabler density with tie‑breaks and priority order per doc.
 - MR: Use pip‑share weighted aggregation and 1.2 per‑color cap; refine target thresholds based on double‑pip spells (by copies).
